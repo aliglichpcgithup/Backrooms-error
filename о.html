@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>BACKROOMS - EVOLVED SCREAMERS</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', monospace; touch-action: none; }
+        #vhs-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.1) 50%), 
+                        linear-gradient(90deg, rgba(255, 0, 0, 0.03), rgba(0, 255, 0, 0.01), rgba(0, 0, 255, 0.03));
+            background-size: 100% 3px, 3px 100%; pointer-events: none; z-index: 120;
+        }
+        #noise { position: fixed; top: 0; left: 0; width: 100%; height: 100%; opacity: 0.08; pointer-events: none; z-index: 121; }
+        #glitch { position: fixed; top:0; left:0; width:100%; height:100%; background: #fff; display:none; z-index: 300; opacity: 0.3; pointer-events: none; }
+        #hud {
+            position: absolute; top: 30px; left: 30px; color: #e0e0c0; z-index: 130;
+            font-size: 14px; text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+        }
+        .bar-bg { width: 180px; height: 3px; background: rgba(255,255,255,0.1); margin: 8px 0 15px; border-radius: 2px; }
+        #stamina-fill { width: 100%; height: 100%; background: #e0e0c0; }
+        #start-screen {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: #080805; z-index: 200; color: #e0e0c0;
+            display: flex; flex-direction: column; justify-content: center; align-items: center; cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+<div id="vhs-overlay"></div>
+<canvas id="noise"></canvas>
+<div id="glitch"></div>
+
+<div id="hud">
+    <div style="color: #ff4444; font-weight: bold;">● REC</div>
+    <div id="timer">00:00:00:00</div>
+    <br>ENERGY
+    <div class="bar-bg"><div id="stamina-fill"></div></div>
+</div>
+
+<div id="start-screen" onclick="start()">
+    <h1>LIMIT</h1>
+    <p>ОНО МЕНЯЕТ ТАКТИКУ</p>
+    <p style="margin-top: 50px; opacity: 0.5;">КЛИКНИТЕ ДЛЯ ВХОДА</p>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+<script>
+    let active = false, stamina = 100;
+    let keys = {}, walkCycle = 0;
+    let nextScreamerTime = 0;
+    let isScreamerActive = false;
+
+    const nCanvas = document.getElementById('noise');
+    const nCtx = nCanvas.getContext('2d');
+    function resize() { nCanvas.width = window.innerWidth; nCanvas.height = window.innerHeight; }
+    window.onresize = resize; resize();
+
+    function updateNoise() {
+        const idata = nCtx.createImageData(nCanvas.width, nCanvas.height);
+        const buffer = new Uint32Array(idata.data.buffer);
+        for(let i=0; i<buffer.length; i++) if(Math.random() > 0.9) buffer[i] = 0xffffffff;
+        nCtx.putImageData(idata, 0, 0);
+    }
+
+    function start() {
+        document.getElementById('start-screen').style.display = 'none';
+        active = true;
+        renderer.domElement.requestPointerLock();
+        setNextScreamer();
+    }
+
+    function setNextScreamer() {
+        const delay = 8000 + Math.random() * 20000;
+        nextScreamerTime = Date.now() + delay;
+    }
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x060604);
+    scene.fog = new THREE.FogExp2(0x060604, 0.2);
+
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+    camera.rotation.order = 'YXZ';
+
+    const renderer = new THREE.WebGLRenderer();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    const flash = new THREE.SpotLight(0xfff1c7, 12, 25, Math.PI/7, 0.5, 1.2);
+    const flashTarget = new THREE.Object3D();
+    camera.add(flash, flashTarget);
+    flash.target = flashTarget;
+    flashTarget.position.set(0, 0, -10);
+    scene.add(camera);
+
+    const entity = new THREE.Group();
+    entity.add(new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 3.5), new THREE.MeshBasicMaterial({color: 0xffffff})));
+    entity.add(new THREE.Mesh(new THREE.SphereGeometry(0.22), new THREE.MeshBasicMaterial({color: 0xffffff})));
+    entity.children[1].position.y = 1.8;
+    entity.position.y = -10;
+    scene.add(entity);
+
+    const walls = [];
+    const wallMat = new THREE.MeshStandardMaterial({color: 0x5a553a});
+    for(let x=-10; x<=10; x++) {
+        for(let z=-10; z<=10; z++) {
+            if(Math.random() > 0.8 && (Math.abs(x)>1 || Math.abs(z)>1)) {
+                const w = new THREE.Mesh(new THREE.BoxGeometry(4, 4, 4), wallMat);
+                w.position.set(x*4, 2, z*4);
+                scene.add(w);
+                walls.push(new THREE.Box3().setFromObject(w));
+            }
+        }
+    }
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), new THREE.MeshStandardMaterial({color: 0x1a1a0f}));
+    floor.rotation.x = -Math.PI/2; scene.add(floor);
+    const ceil = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), new THREE.MeshStandardMaterial({color: 0x3a3a2a}));
+    ceil.rotation.x = Math.PI/2; ceil.position.y = 4; scene.add(ceil);
+
+    document.addEventListener('keydown', e => keys[e.code] = true);
+    document.addEventListener('keyup', e => keys[e.code] = false);
+    document.addEventListener('mousemove', e => {
+        if(document.pointerLockElement === renderer.domElement) {
+            camera.rotation.y -= e.movementX * 0.0015;
+            camera.rotation.x -= e.movementY * 0.0015;
+            camera.rotation.x = Math.max(-1.4, Math.min(1.4, camera.rotation.x));
+        }
+    });
+
+    function triggerScreamer() {
+        isScreamerActive = true;
+        const type = Math.floor(Math.random() * 3); // Выбор типа скримера
+        
+        let duration = 500;
+
+        if (type === 0) { // ПРЯМО ПЕРЕД ЛИЦОМ
+            const direction = new THREE.Vector3(0, 0, -1.8).applyQuaternion(camera.quaternion);
+            entity.position.copy(camera.position).add(direction);
+            entity.position.y = 1.7;
+            entity.lookAt(camera.position);
+            document.getElementById('glitch').style.display = 'block';
+            camera.rotation.z = 0.4;
+        } 
+        else if (type === 1) { // СБОКУ
+            const side = Math.random() > 0.5 ? 2 : -2;
+            const direction = new THREE.Vector3(side, 0, -3).applyQuaternion(camera.quaternion);
+            entity.position.copy(camera.position).add(direction);
+            entity.position.y = 1.7;
+            entity.lookAt(camera.position);
+            duration = 800;
+        }
+        else { // ТОЛЬКО ПОМЕХИ И МИГАНИЕ
+            flash.intensity = 0;
+            document.getElementById('glitch').style.opacity = "0.1";
+            document.getElementById('glitch').style.display = 'block';
+            duration = 1500;
+        }
+
+        setTimeout(() => {
+            entity.position.y = -10;
+            document.getElementById('glitch').style.display = 'none';
+            document.getElementById('glitch').style.opacity = "0.3";
+            flash.intensity = 12;
+            isScreamerActive = false;
+            setNextScreamer();
+        }, duration);
+    }
+
+    function animate() {
+        requestAnimationFrame(animate);
+        if(!active) return;
+        camera.rotation.z *= 0.92;
+        updateNoise();
+        document.getElementById('timer').innerText = new Date().toISOString().substr(11, 11).replace('.', ':');
+
+        if(Date.now() > nextScreamerTime && !isScreamerActive) triggerScreamer();
+        if(isScreamerActive && Math.random() > 0.8) flash.intensity = Math.random() * 40;
+
+        const isRunning = keys['ShiftLeft'] && stamina > 5;
+        const speed = isRunning ? 0.12 : 0.05;
+        const move = new THREE.Vector3();
+        if(keys['KeyW']) move.z -= 1; if(keys['KeyS']) move.z += 1;
+        if(keys['KeyA']) move.x -= 1; if(keys['KeyD']) move.x += 1;
+
+        if(move.length() > 0) {
+            move.normalize().multiplyScalar(speed).applyQuaternion(camera.quaternion);
+            move.y = 0;
+            const nextPos = camera.position.clone().add(move);
+            const pBox = new THREE.Box3().setFromCenterAndSize(nextPos, new THREE.Vector3(0.7, 2, 0.7));
+            if(!walls.some(w => w.intersectsBox(pBox))) camera.position.copy(nextPos);
+            walkCycle += speed * 3;
+            camera.position.y = 1.7 + Math.sin(walkCycle) * 0.05;
+        }
+        stamina = isRunning ? Math.max(0, stamina - 0.8) : Math.min(100, stamina + 0.4);
+        document.getElementById('stamina-fill').style.width = stamina + "%";
+        renderer.render(scene, camera);
+    }
+    animate();
+</script>
+</body>
+</html>
